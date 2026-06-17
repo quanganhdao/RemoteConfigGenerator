@@ -23,7 +23,7 @@ A C# Source Generator for Unity that creates optimized, reflection-free Remote C
 Dependencies: Install NuGet For Unity, then install Microsoft.CodeAnalysis.CSharp
 ```
 
-Use the `SourceGenerator.dll` from [here](https://github.com/unity-package/RemoteConfigGenerator/blob/main/SourceGenerator/bin/Release/netstandard2.0/RemoteConfigGenerator.dll), or build it yourself.
+Use the `SourceGenerator.dll` from [release](https://github.com/unity-package/RemoteConfigGenerator/releases/download/1.0.2/RemoteConfigGenerator.dll), or build it yourself.
 
 1. Copy `SourceGenerator.dll` into `Assets/Plugins/`.
 2. Select the DLL in Unity Inspector.
