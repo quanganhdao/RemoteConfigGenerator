@@ -18,7 +18,7 @@ namespace RemoteConfigGenerator
     //     public string Key { get; set; }
     //
     //     /// <summary>
-    //     /// If true, this field will be saved to and loaded from PlayerPrefs
+    //     /// Kept for backwards compatibility. Firebase Remote Config now persists activated values.
     //     /// </summary>
     //     public bool PersistToPrefs { get; set; } = true;
     //
@@ -44,31 +44,8 @@ namespace RemoteConfigGenerator
     // public class RemoteConfigDataAttribute : Attribute
     // {
     //     /// <summary>
-    //     /// Prefix for PlayerPrefs keys
+    //     /// Kept for backwards compatibility.
     //     /// </summary>
     //     public string PrefsPrefix { get; set; } = "rc_";
-    // }
-    //
-    // /// <summary>
-    // /// Interface for custom storage implementation
-    // /// </summary>
-    // public interface IRemoteConfigStorage
-    // {
-    //     void SetInt(string key, int value);
-    //     int GetInt(string key, int defaultValue);
-    //
-    //     void SetFloat(string key, float value);
-    //     float GetFloat(string key, float defaultValue);
-    //
-    //     void SetString(string key, string value);
-    //     string GetString(string key, string defaultValue);
-    //
-    //     void SetBool(string key, bool value);
-    //     bool GetBool(string key, bool defaultValue);
-    //
-    //     void SetLong(string key, long value);
-    //     long GetLong(string key, long defaultValue);
-    //
-    //     void Save();
     // }
 }

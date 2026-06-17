@@ -18,3 +18,14 @@ C:\Users\nguye\Downloads\RemoteConfigGenerator\SourceGenerator\obj\Release\netst
 C:\Users\nguye\Downloads\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.csproj.CoreCompileInputs.cache
 C:\Users\nguye\Downloads\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.dll
 C:\Users\nguye\Downloads\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.pdb
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\bin\Release\netstandard2.0\RemoteConfigGenerator.deps.json
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\bin\Release\netstandard2.0\RemoteConfigGenerator.dll
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\bin\Release\netstandard2.0\RemoteConfigGenerator.pdb
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.csproj.AssemblyReference.cache
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.GeneratedMSBuildEditorConfig.editorconfig
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.AssemblyInfoInputs.cache
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.AssemblyInfo.cs
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.csproj.CoreCompileInputs.cache
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.sourcelink.json
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.dll
+D:\Ducnv\RemoteConfigGenerator\SourceGenerator\obj\Release\netstandard2.0\RemoteConfigGenerator.pdb

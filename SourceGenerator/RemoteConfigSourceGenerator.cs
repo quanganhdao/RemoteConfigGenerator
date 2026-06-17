@@ -34,26 +34,6 @@ namespace RemoteConfigGenerator
         public string PrefsPrefix { get; set; } = ""rc_"";
     }
 
-    public interface IRemoteConfigStorage
-    {
-        void SetInt(string key, int value);
-        int GetInt(string key, int defaultValue);
-
-        void SetFloat(string key, float value);
-        float GetFloat(string key, float defaultValue);
-
-        void SetString(string key, string value);
-        string GetString(string key, string defaultValue);
-
-        void SetBool(string key, bool value);
-        bool GetBool(string key, bool defaultValue);
-
-        void SetLong(string key, long value);
-        long GetLong(string key, long defaultValue);
-
-        void Save();
-    }
-
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false)]
     public sealed class RemoteConfigFieldAttribute : Attribute
     {
@@ -207,8 +187,9 @@ namespace RemoteConfigGenerator
             sb.AppendLine($"// Generated at: {System.DateTime.Now}");
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
-            sb.AppendLine("using UnityEngine;");
+            sb.AppendLine("#if VIRTUESKY_FIREBASE_REMOTECONFIG");
             sb.AppendLine("using Firebase.RemoteConfig;");
+            sb.AppendLine("#endif");
             sb.AppendLine();
 
             if (!string.IsNullOrEmpty(namespaceName))
@@ -221,27 +202,12 @@ namespace RemoteConfigGenerator
             sb.AppendLine($"    public static partial class {className}Extensions");
             sb.AppendLine("    {");
             
-            // Add storage field
-            sb.AppendLine("        /// <summary>");
-            sb.AppendLine("        /// Set custom storage implementation. If null, will use default behavior (user-defined)");
-            sb.AppendLine("        /// </summary>");
-            sb.AppendLine("        public static RemoteConfigGenerator.IRemoteConfigStorage Storage { get; set; }");
-            sb.AppendLine();
-
             // Generate FieldSetterLookup
             GenerateFieldSetterLookup(sb, className, members);
             sb.AppendLine();
 
             // Generate FieldGetterLookup
             GenerateFieldGetterLookup(sb, className, members);
-            sb.AppendLine();
-
-            // Generate SaveToPrefs_Generated
-            GenerateSaveToPrefs(sb, className, prefsPrefix, members);
-            sb.AppendLine();
-
-            // Generate LoadFromPrefs_Generated
-            GenerateLoadFromPrefs(sb, className, prefsPrefix, members);
             sb.AppendLine();
 
             // Generate SetFieldValue_Generated
@@ -254,6 +220,10 @@ namespace RemoteConfigGenerator
 
             // Generate ExportToString_Generated
             GenerateExportToString(sb, className, members);
+            sb.AppendLine();
+
+            // Generate local parsing helpers
+            GenerateParsingHelpers(sb);
 
             sb.AppendLine("    }");
 
@@ -297,11 +267,11 @@ namespace RemoteConfigGenerator
                 }
                 else if (typeName == "int[]" || typeName == "System.Int32[]")
                 {
-                    sb.AppendLine($"                {className}.{member.Name} = RemoteConfig.GetIntArray(value);");
+                    sb.AppendLine($"                {className}.{member.Name} = ParseIntArray(value);");
                 }
                 else if (typeName == "float[]" || typeName == "System.Single[]")
                 {
-                    sb.AppendLine($"                {className}.{member.Name} = RemoteConfig.GetFloatArray(value);");
+                    sb.AppendLine($"                {className}.{member.Name} = ParseFloatArray(value);");
                 }
 
                 sb.AppendLine("            }},");
@@ -323,125 +293,9 @@ namespace RemoteConfigGenerator
             sb.AppendLine("        };");
         }
 
-        private void GenerateSaveToPrefs(StringBuilder sb, string className, string prefsPrefix, List<ConfigMember> members)
-        {
-            sb.AppendLine("        public static void SaveToPrefs_Generated()");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (Storage == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                Debug.LogError(\"Storage is not set. Please implement and assign a storage before calling SaveToPrefs_Generated.\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            try");
-            sb.AppendLine("            {");
-
-            foreach (var member in members.Where(m => m.PersistToPrefs))
-            {
-                var key = $"{prefsPrefix}{member.Name}";
-                var typeName = member.Type;
-
-                if (typeName == "string" || typeName == "System.String")
-                {
-                    sb.AppendLine($"                Storage.SetString(\"{key}\", {className}.{member.Name} ?? string.Empty);");
-                }
-                else if (typeName == "int" || typeName == "System.Int32")
-                {
-                    sb.AppendLine($"                Storage.SetInt(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "float" || typeName == "System.Single")
-                {
-                    sb.AppendLine($"                Storage.SetFloat(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "bool" || typeName == "System.Boolean")
-                {
-                    sb.AppendLine($"                Storage.SetBool(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "long" || typeName == "System.Int64")
-                {
-                    sb.AppendLine($"                Storage.SetLong(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "int[]" || typeName == "System.Int32[]")
-                {
-                    sb.AppendLine($"                if ({className}.{member.Name} != null && {className}.{member.Name}.Length > 0)");
-                    sb.AppendLine($"                    Storage.SetString(\"{key}\", string.Join(\",\", {className}.{member.Name}));");
-                }
-                else if (typeName == "float[]" || typeName == "System.Single[]")
-                {
-                    sb.AppendLine($"                if ({className}.{member.Name} != null && {className}.{member.Name}.Length > 0)");
-                    sb.AppendLine($"                    Storage.SetString(\"{key}\", string.Join(\",\", {className}.{member.Name}));");
-                }
-            }
-
-            sb.AppendLine("                Storage.Save();");
-            sb.AppendLine("            }");
-            sb.AppendLine("            catch (Exception ex)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                Debug.LogError($\"Error saving remote config: {ex.Message}\");");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
-        }
-
-        private void GenerateLoadFromPrefs(StringBuilder sb, string className, string prefsPrefix, List<ConfigMember> members)
-        {
-            sb.AppendLine("        public static void LoadFromPrefs_Generated()");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (Storage == null)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                Debug.LogError(\"Storage is not set. Please implement and assign a storage before calling LoadFromPrefs_Generated.\");");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
-
-            foreach (var member in members.Where(m => m.PersistToPrefs))
-            {
-                var key = $"{prefsPrefix}{member.Name}";
-                var typeName = member.Type;
-
-                sb.AppendLine("            try");
-                sb.AppendLine("            {");
-
-                if (typeName == "string" || typeName == "System.String")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = Storage.GetString(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "int" || typeName == "System.Int32")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = Storage.GetInt(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "float" || typeName == "System.Single")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = Storage.GetFloat(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "bool" || typeName == "System.Boolean")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = Storage.GetBool(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "long" || typeName == "System.Int64")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = Storage.GetLong(\"{key}\", {className}.{member.Name});");
-                }
-                else if (typeName == "int[]" || typeName == "System.Int32[]")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = RemoteConfig.GetIntArray(Storage.GetString(\"{key}\", RemoteConfig.IntArrayToString({className}.{member.Name})));");
-                }
-                else if (typeName == "float[]" || typeName == "System.Single[]")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = RemoteConfig.GetFloatArray(Storage.GetString(\"{key}\", string.Join(\",\", {className}.{member.Name} ?? new float[0])));");
-                }
-
-                sb.AppendLine("            }");
-                sb.AppendLine("            catch (Exception ex)");
-                sb.AppendLine("            {");
-                sb.AppendLine($"                Debug.LogWarning($\"Error loading {member.Name}: {{ex.Message}}\");");
-                sb.AppendLine("            }");
-            }
-
-            sb.AppendLine("        }");
-        }
-
         private void GenerateSetFieldValue(StringBuilder sb, string className, List<ConfigMember> members)
         {
+            sb.AppendLine("#if VIRTUESKY_FIREBASE_REMOTECONFIG");
             sb.AppendLine("        public static bool SetFieldValue_Generated(string fieldName, ConfigValue configValue)");
             sb.AppendLine("        {");
             sb.AppendLine("            switch (fieldName)");
@@ -480,6 +334,7 @@ namespace RemoteConfigGenerator
             sb.AppendLine("                    return false;");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
+            sb.AppendLine("#endif");
         }
 
         private void GenerateGetFieldValue(StringBuilder sb, string className, List<ConfigMember> members)
@@ -532,6 +387,33 @@ namespace RemoteConfigGenerator
             }
 
             sb.AppendLine("            return sb.ToString();");
+            sb.AppendLine("        }");
+        }
+
+        private void GenerateParsingHelpers(StringBuilder sb)
+        {
+            sb.AppendLine("        private static int[] ParseIntArray(string value)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (string.IsNullOrEmpty(value)) return new int[0];");
+            sb.AppendLine("            var parts = value.Split(',');");
+            sb.AppendLine("            var values = new List<int>();");
+            sb.AppendLine("            foreach (var part in parts)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (int.TryParse(part.Trim(), out var parsed)) values.Add(parsed);");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return values.ToArray();");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private static float[] ParseFloatArray(string value)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (string.IsNullOrEmpty(value)) return new float[0];");
+            sb.AppendLine("            var parts = value.Split(',');");
+            sb.AppendLine("            var values = new List<float>();");
+            sb.AppendLine("            foreach (var part in parts)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (float.TryParse(part.Trim(), out var parsed)) values.Add(parsed);");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return values.ToArray();");
             sb.AppendLine("        }");
         }
 

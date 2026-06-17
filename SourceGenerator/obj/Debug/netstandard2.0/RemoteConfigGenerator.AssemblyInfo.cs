@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RemoteConfigGenerator")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1fddc3c78d62da00bc4ed1c3b4a8bbe4ad871288")]
 [assembly: System.Reflection.AssemblyProductAttribute("RemoteConfigGenerator")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RemoteConfigGenerator")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
