@@ -2,349 +2,231 @@
 
 ## Bước 1: Cài Đặt Source Generator
 
-### Thêm vào project (.csproj)
+### Dùng DLL trong Unity
+
+1. Copy `SourceGenerator.dll` vào `Assets/Plugins/`.
+2. Chọn DLL trong Unity Inspector.
+3. Bỏ chọn **Any Platform**.
+4. Chỉ chọn **Editor**.
+5. Thêm asset label `RoslynAnalyzer`.
+6. Apply.
+
+### Hoặc tham chiếu project generator
 
 ```xml
 <ItemGroup>
-  <ProjectReference Include="..\SourceGenerator\RemoteConfigGenerator.csproj" 
-                    OutputItemType="Analyzer" 
+  <ProjectReference Include="..\SourceGenerator\RemoteConfigGenerator.csproj"
+                    OutputItemType="Analyzer"
                     ReferenceOutputAssembly="false" />
 </ItemGroup>
 ```
 
-## Bước 2: Tạo Remote Config Class
+## Bước 2: Define Symbol Cho Firebase
+
+Nếu project chưa cài Firebase, không cần thêm define symbol. Code Firebase sẽ được loại khỏi compile.
+
+Khi đã cài Firebase, thêm các symbol tương ứng trong Unity Player Settings:
+
+| Symbol | Khi nào dùng | Tác dụng |
+| --- | --- | --- |
+| `VIRTUESKY_FIREBASE` | Đã cài Firebase App | Bật `FirebaseApp.CheckAndFixDependenciesAsync()`. |
+| `VIRTUESKY_FIREBASE_REMOTECONFIG` | Đã cài Firebase Remote Config | Bật `Firebase.RemoteConfig`, `Firebase.Extensions`, và generated method dùng `ConfigValue`. |
+
+## Bước 3: Tạo Remote Config Class
 
 ```csharp
 using RemoteConfigGenerator;
 
-[RemoteConfigData(PrefsPrefix = "rc_")]
+[RemoteConfigData]
 public static partial class RemoteData
 {
-    public static int GoldReward = 100;
-    public static string WelcomeMessage = "Welcome!";
-    public static float SpawnRate = 2.5f;
-    public static bool EnableFeatureX = true;
-    public static long UserId = 123456789;
+    [RemoteConfigField(Key = "inter_time_gap")]
+    public static int InterTimeGap = 30;
+
+    [RemoteConfigField(Key = "start_level_show_inter")]
+    public static int StartLevelShowInter = 15;
 }
 ```
 
-**Lưu ý:**
-- Class phải là `static partial`
-- Thêm attribute `[RemoteConfigData]`
-- Tất cả fields sẽ tự động được quét (không cần `[RemoteConfigField]`)
+Lưu ý:
 
-## Bước 3: Implement Storage
+- Class phải là `static partial`.
+- Class phải có `[RemoteConfigData]`.
+- Dùng `[RemoteConfigField(Key = "...")]` khi key trên Firebase khác tên field.
+- `PrefsPrefix` và `PersistToPrefs` chỉ còn để tương thích code cũ, không còn sinh logic storage.
 
-### Option A: Sử dụng PlayerPrefs (đơn giản)
-
-Tạo file `PlayerPrefsStorage.cs`:
-
-```csharp
-using UnityEngine;
-using RemoteConfigGenerator;
-
-public class PlayerPrefsStorage : IRemoteConfigStorage
-{
-    public void SetInt(string key, int value) => PlayerPrefs.SetInt(key, value);
-    public int GetInt(string key, int defaultValue) => PlayerPrefs.GetInt(key, defaultValue);
-    
-    public void SetFloat(string key, float value) => PlayerPrefs.SetFloat(key, value);
-    public float GetFloat(string key, float defaultValue) => PlayerPrefs.GetFloat(key, defaultValue);
-    
-    public void SetString(string key, string value) => PlayerPrefs.SetString(key, value);
-    public string GetString(string key, string defaultValue) => PlayerPrefs.GetString(key, defaultValue);
-    
-    public void SetBool(string key, bool value) => PlayerPrefs.SetInt(key, value ? 1 : 0);
-    public bool GetBool(string key, bool defaultValue) => PlayerPrefs.GetInt(key, defaultValue ? 1 : 0) != 0;
-    
-    public void SetLong(string key, long value) => PlayerPrefs.SetString(key, value.ToString());
-    public long GetLong(string key, long defaultValue) => 
-        long.TryParse(PlayerPrefs.GetString(key, defaultValue.ToString()), out var v) ? v : defaultValue;
-    
-    public void Save() => PlayerPrefs.Save();
-}
-```
-
-### Option B: Sử dụng GameData (nâng cao)
-
-Nếu bạn có [game-data-unity](https://github.com/VirtueSky/game-data-unity):
-
-```csharp
-using VirtueSky.DataStorage;
-using RemoteConfigGenerator;
-
-public class GameDataStorage : IRemoteConfigStorage
-{
-    public void SetInt(string key, int value) => GameData.Set(key, value);
-    public int GetInt(string key, int defaultValue) => GameData.Get(key, defaultValue);
-    
-    public void SetFloat(string key, float value) => GameData.Set(key, value);
-    public float GetFloat(string key, float defaultValue) => GameData.Get(key, defaultValue);
-    
-    public void SetString(string key, string value) => GameData.Set(key, value);
-    public string GetString(string key, string defaultValue) => GameData.Get(key, defaultValue);
-    
-    public void SetBool(string key, bool value) => GameData.Set(key, value);
-    public bool GetBool(string key, bool defaultValue) => GameData.Get(key, defaultValue);
-    
-    public void SetLong(string key, long value) => GameData.Set(key, value);
-    public long GetLong(string key, long defaultValue) => GameData.Get(key, defaultValue);
-    
-    public void Save() => GameData.Save();
-}
-```
-
-## Bước 4: Khởi Tạo Storage
-
-Tạo script khởi tạo khi game start:
-
-```csharp
-using UnityEngine;
-
-public class GameBootstrap : MonoBehaviour
-{
-    void Awake()
-    {
-        // Assign storage implementation
-        RemoteDataExtensions.Storage = new PlayerPrefsStorage();
-        // hoặc: RemoteDataExtensions.Storage = new GameDataStorage();
-        
-        // Load saved data
-        RemoteDataExtensions.LoadFromPrefs_Generated();
-        
-        Debug.Log($"Gold Reward: {RemoteData.GoldReward}");
-    }
-}
-```
-
-## Bước 5: Sử Dụng Trong Game
+## Bước 4: Sử Dụng Trong Game
 
 ### Đọc giá trị
 
 ```csharp
-int gold = RemoteData.GoldReward;
-string message = RemoteData.WelcomeMessage;
-bool featureEnabled = RemoteData.EnableFeatureX;
+int interGap = RemoteData.InterTimeGap;
+int startLevel = RemoteData.StartLevelShowInter;
 ```
 
-### Lưu giá trị mới
-
-```csharp
-RemoteData.GoldReward = 200;
-RemoteData.WelcomeMessage = "Hello World!";
-
-// Lưu vào storage
-RemoteDataExtensions.SaveToPrefs_Generated();
-```
-
-### Sync từ Firebase Remote Config
-
-```csharp
-using Firebase.RemoteConfig;
-using System.Threading.Tasks;
-
-public async Task SyncFromFirebase()
-{
-    await FirebaseRemoteConfig.DefaultInstance.FetchAndActivateAsync();
-    
-    // Sync tất cả fields từ Firebase
-    RemoteConfig.SyncToStaticClass(RemoteData.SetFieldValue);
-    
-    // Lưu vào local storage
-    RemoteDataExtensions.SaveToPrefs_Generated();
-    
-    Debug.Log("Synced from Firebase!");
-}
-```
-
-## Ví Dụ Hoàn Chỉnh
-
-```csharp
-using UnityEngine;
-using Firebase.RemoteConfig;
-using System.Threading.Tasks;
-
-public class RemoteConfigManager : MonoBehaviour
-{
-    void Awake()
-    {
-        // 1. Setup storage
-        RemoteDataExtensions.Storage = new PlayerPrefsStorage();
-        
-        // 2. Load từ local
-        RemoteDataExtensions.LoadFromPrefs_Generated();
-    }
-
-    void Start()
-    {
-        // 3. Sync từ Firebase (async)
-        SyncFromFirebase();
-    }
-
-    async Task SyncFromFirebase()
-    {
-        try
-        {
-            // Fetch từ Firebase
-            await FirebaseRemoteConfig.DefaultInstance.FetchAndActivateAsync();
-            
-            // Sync vào static class
-            RemoteConfig.SyncToStaticClass(RemoteData.SetFieldValue);
-            
-            // Lưu vào storage
-            RemoteDataExtensions.SaveToPrefs_Generated();
-            
-            Debug.Log("✅ Remote Config synced!");
-            Debug.Log($"Gold Reward: {RemoteData.GoldReward}");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"❌ Sync failed: {ex.Message}");
-        }
-    }
-
-    void OnDestroy()
-    {
-        // Lưu trước khi thoát game
-        RemoteDataExtensions.SaveToPrefs_Generated();
-    }
-}
-```
-
-## Debug và Kiểm Tra
-
-### Xem giá trị hiện tại
+### Debug giá trị hiện tại
 
 ```csharp
 string debugInfo = RemoteDataExtensions.ExportToString_Generated();
 Debug.Log(debugInfo);
 ```
 
-Output:
-```
-GoldReward: 100
-WelcomeMessage: Welcome!
-SpawnRate: 2.5
-EnableFeatureX: True
-UserId: 123456789
+Output ví dụ:
+
+```text
+InterTimeGap: 30
+StartLevelShowInter: 15
 ```
 
-### Kiểm tra generated code
+## Bước 5: Sync Từ Firebase Remote Config
 
-Sau khi build, tìm file generated trong:
-- Visual Studio: `obj/Debug/generated/` 
-- Rider: `.generated/`
+Sử dụng runtime loader trong `Example/RemoteConfig.cs`. Loader này sẽ:
 
-File: `RemoteData_Generated.g.cs`
+1. Check Firebase dependency nếu có `VIRTUESKY_FIREBASE`.
+2. Activate cached values của phiên trước.
+3. Fetch remote values mới.
+4. Activate fetched values.
+5. Apply Firebase keys vào `RemoteData` bằng generated lookup.
 
-## Các Tính Năng Nâng Cao
+Không cần gọi `SaveToPrefs_Generated()` hoặc `LoadFromPrefs_Generated()` nữa. Firebase Remote Config tự lưu activated values giữa các phiên.
 
-### 1. Custom Key Names
+## Generated API
+
+Với class `RemoteData`, generator tạo `RemoteDataExtensions` gồm:
+
+```csharp
+public static readonly Dictionary<string, Action<string>> FieldSetterLookup;
+public static readonly Dictionary<string, Func<object>> FieldGetterLookup;
+public static object GetFieldValue_Generated(string fieldName);
+public static string ExportToString_Generated();
+```
+
+Khi có `VIRTUESKY_FIREBASE_REMOTECONFIG`, generator tạo thêm:
+
+```csharp
+public static bool SetFieldValue_Generated(string fieldName, ConfigValue configValue);
+```
+
+Generator không còn tạo:
+
+```csharp
+RemoteDataExtensions.Storage
+RemoteDataExtensions.SaveToPrefs_Generated()
+RemoteDataExtensions.LoadFromPrefs_Generated()
+IRemoteConfigStorage
+```
+
+## Auto-Scan Và Manual Mode
+
+### Auto-Scan
+
+Nếu không có field nào dùng `[RemoteConfigField]`, generator tự quét tất cả public static fields/properties:
 
 ```csharp
 [RemoteConfigData]
 public static partial class RemoteData
 {
-    [RemoteConfigField(Key = "reward_gold")]
     public static int GoldReward = 100;
+    public static bool EnableFeature = false;
 }
 ```
 
-### 2. Disable Save/Sync cho field cụ thể
+### Manual Mode
+
+Nếu có ít nhất một field dùng `[RemoteConfigField]`, generator chỉ lấy các field có attribute:
 
 ```csharp
 [RemoteConfigData]
 public static partial class RemoteData
 {
-    [RemoteConfigField(PersistToPrefs = false)]
-    public static int TempValue = 0; // Không lưu vào storage
-    
-    [RemoteConfigField(SyncFromRemote = false)]
-    public static int LocalOnly = 0; // Không sync từ Firebase
+    [RemoteConfigField(Key = "gold_reward")]
+    public static int GoldReward = 100;
+
+    public static int LocalValue = 1; // Không được generate
 }
 ```
 
-### 3. Custom Prefix
+## Settings JSON Keys
+
+`Example/RemoteConfig.cs` có logic xử lý Firebase key có hậu tố `Settings`.
+
+Firebase key:
+
+```text
+AdSettings
+```
+
+Firebase value:
+
+```json
+{
+  "InterTimeGap": 30,
+  "StartLevelShowInter": 15
+}
+```
+
+Runtime sẽ bỏ chữ `Settings`, lấy prefix là `Ad`, rồi ghép với key con trong JSON:
+
+```text
+AdInterTimeGap
+AdStartLevelShowInter
+```
+
+Khai báo trong `RemoteData`:
 
 ```csharp
-[RemoteConfigData(PrefsPrefix = "game_config_")]
+[RemoteConfigData]
 public static partial class RemoteData
 {
-    // Keys sẽ là: game_config_GoldReward, game_config_WelcomeMessage, ...
+    [RemoteConfigField(Key = "AdInterTimeGap")]
+    public static int InterTimeGap = 30;
+
+    [RemoteConfigField(Key = "AdStartLevelShowInter")]
+    public static int StartLevelShowInter = 15;
 }
 ```
 
-### 4. Multiple Config Classes
+## Supported Types
 
-```csharp
-[RemoteConfigData(PrefsPrefix = "game_")]
-public static partial class GameConfig
-{
-    public static int MaxLevel = 100;
-}
+- `int`
+- `float`
+- `string`
+- `bool`
+- `long`
+- `int[]`
+- `float[]`
 
-[RemoteConfigData(PrefsPrefix = "shop_")]
-public static partial class ShopConfig
-{
-    public static int DiamondPrice = 99;
-}
-
-// Setup
-GameConfigExtensions.Storage = new PlayerPrefsStorage();
-ShopConfigExtensions.Storage = new PlayerPrefsStorage();
-```
+`int[]` và `float[]` được parse từ chuỗi phân tách bằng dấu phẩy.
 
 ## Troubleshooting
 
-### ❌ Lỗi: "Storage is not set"
+### Lỗi namespace Firebase khi chưa cài Firebase
 
-**Giải pháp:** Assign storage trước khi gọi Save/Load:
-```csharp
-RemoteDataExtensions.Storage = new PlayerPrefsStorage();
-```
+Kiểm tra define symbols:
 
-### ❌ Không thấy generated code
+- Chưa cài Firebase: bỏ `VIRTUESKY_FIREBASE` và `VIRTUESKY_FIREBASE_REMOTECONFIG`.
+- Đã cài Firebase App: thêm `VIRTUESKY_FIREBASE`.
+- Đã cài Firebase Remote Config: thêm `VIRTUESKY_FIREBASE_REMOTECONFIG`.
 
-**Kiểm tra:**
-1. Class có `static partial` chưa?
-2. Có attribute `[RemoteConfigData]` chưa?
-3. Rebuild project
-4. Restart IDE (Visual Studio/Rider)
+### Không thấy generated code
 
-### ❌ Compile error ở generated code
+Kiểm tra:
 
-**Nguyên nhân:** Kiểu dữ liệu không được hỗ trợ
+1. Class có `static partial`.
+2. Class có `[RemoteConfigData]`.
+3. Rebuild project.
+4. Refresh Unity/IDE.
 
-**Supported types:**
-- `int`, `float`, `string`, `bool`, `long`
-- `int[]`, `float[]`
+### Firebase key không apply vào RemoteData
 
-### ❌ Data không save/load
+Kiểm tra:
 
-**Kiểm tra:**
-1. Storage đã được assign chưa?
-2. Gọi `Save()` sau khi set value
-3. Gọi `Load()` trước khi đọc value
-
-## Best Practices
-
-✅ **DO:**
-- Assign storage trong `Awake()` hoặc game bootstrap
-- Gọi `LoadFromPrefs_Generated()` khi game start
-- Gọi `SaveToPrefs_Generated()` trước khi quit game
-- Sử dụng async/await cho Firebase sync
-
-❌ **DON'T:**
-- Gọi Save() trong Update() (performance issue)
-- Quên assign Storage
-- Truy cập RemoteData trước khi Load()
+1. Key Firebase trùng với `RemoteConfigField.Key` hoặc tên field.
+2. Nếu dùng `Settings`, key generated là prefix + key con JSON.
+3. Type của field nằm trong danh sách supported.
+4. Field không bị đặt `SyncFromRemote = false`.
 
 ## Tài Liệu Tham Khảo
 
-- [STORAGE_WRAPPER_VI.md](STORAGE_WRAPPER_VI.md) - Chi tiết về Storage Wrapper Pattern
-- [README_VI.md](README_VI.md) - Hướng dẫn đầy đủ
-- [TECHNICAL_DETAILS_VI.md](TECHNICAL_DETAILS_VI.md) - Kỹ thuật nâng cao
-
-## Liên Hệ & Hỗ Trợ
-
-Có vấn đề? Tạo issue trên GitHub hoặc liên hệ maintainer.
+- [TECHNICAL_DETAILS_VI.md](TECHNICAL_DETAILS_VI.md)
+- [README.md](../README.md)
