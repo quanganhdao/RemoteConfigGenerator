@@ -77,47 +77,16 @@ namespace RemoteConfigGenerator
                 : classSymbol.ContainingNamespace.ToDisplayString();
 
             var className = classSymbol.Name;
-            var prefsPrefix = GetPrefsPrefix(classSymbol);
 
-            // Collect all fields and properties with RemoteConfigField attribute
-            // ✅ IMPROVED: Tự động scan TẤT CẢ public static fields nếu không có [RemoteConfigField]
+            // Collect all fields with RemoteConfigField attribute
             var members = new List<ConfigMember>();
 
-            // Đếm số fields có [RemoteConfigField]
-            int fieldsWithAttribute = 0;
-            foreach (var member in classSymbol.GetMembers())
-            {
-                var attribute = member.GetAttributes()
-                    .FirstOrDefault(a => a.AttributeClass?.Name == RemoteConfigFieldAttributeName);
-                if (attribute != null) fieldsWithAttribute++;
-            }
-
-            // Nếu KHÔNG có field nào có [RemoteConfigField] → Auto-scan tất cả public static fields
-            bool autoScanMode = fieldsWithAttribute == 0;
-
             foreach (var member in classSymbol.GetMembers())
             {
                 var attribute = member.GetAttributes()
                     .FirstOrDefault(a => a.AttributeClass?.Name == RemoteConfigFieldAttributeName);
 
-                // ✅ AUTO-SCAN MODE: Nếu không có field nào có attribute, tự động scan ALL fields
-                bool shouldInclude = false;
-                
-                if (autoScanMode)
-                {
-                    // Auto-scan: Chỉ lấy public static fields/properties
-                    if (member.IsStatic && member.DeclaredAccessibility == Accessibility.Public)
-                    {
-                        shouldInclude = true;
-                    }
-                }
-                else
-                {
-                    // Manual mode: Chỉ lấy fields có [RemoteConfigField]
-                    shouldInclude = (attribute != null);
-                }
-
-                if (!shouldInclude)
+                if (attribute == null)
                     continue;
 
                 ConfigMember configMember = null;
@@ -127,51 +96,25 @@ namespace RemoteConfigGenerator
                     configMember = new ConfigMember
                     {
                         Name = field.Name,
-                        Type = field.Type.ToDisplayString(),
-                        IsField = true
-                    };
-                }
-                else if (member is IPropertySymbol property)
-                {
-                    configMember = new ConfigMember
-                    {
-                        Name = property.Name,
-                        Type = property.Type.ToDisplayString(),
-                        IsField = false
+                        Type = field.Type.ToDisplayString()
                     };
                 }
 
                 if (configMember != null)
                 {
-                    // Default values
-                    configMember.Key = configMember.Name;
-                    configMember.PersistToPrefs = true;
-                    configMember.SyncFromRemote = true;
-
-                    // Override with attribute values if present
-                    if (attribute != null)
+                    // Get Key from attribute
+                    var customKey = GetAttributePropertyValue(attribute, "Key") as string;
+                    if (!string.IsNullOrEmpty(customKey))
                     {
-                        // ✅ FIX: Try semantic model first, then fallback to syntax parsing
-                        var customKey = GetAttributePropertyValue(attribute, "Key") as string;
-                        if (!string.IsNullOrEmpty(customKey))
-                        {
-                            configMember.Key = customKey;
-                        }
+                        configMember.Key = customKey;
+                    }
+                    else
+                    {
+                        var syntaxKey = GetAttributeKeyFromSyntax(member);
+                        if (!string.IsNullOrEmpty(syntaxKey))
+                            configMember.Key = syntaxKey;
                         else
-                        {
-                            // Fallback: Parse syntax directly (works even if attribute is generated in same pass)
-                            var syntaxKey = GetAttributeKeyFromSyntax(member);
-                            if (!string.IsNullOrEmpty(syntaxKey))
-                                configMember.Key = syntaxKey;
-                        }
-
-                        var persistToPrefs = GetAttributePropertyValue(attribute, "PersistToPrefs") as bool?;
-                        if (persistToPrefs.HasValue)
-                            configMember.PersistToPrefs = persistToPrefs.Value;
-
-                        var syncFromRemote = GetAttributePropertyValue(attribute, "SyncFromRemote") as bool?;
-                        if (syncFromRemote.HasValue)
-                            configMember.SyncFromRemote = syncFromRemote.Value;
+                            configMember.Key = configMember.Name;
                     }
 
                     members.Add(configMember);
@@ -184,9 +127,7 @@ namespace RemoteConfigGenerator
             sb.AppendLine("// <auto-generated />");
             sb.AppendLine($"// Generated for: {className}");
             sb.AppendLine($"// Total fields: {members.Count}");
-            sb.AppendLine($"// Generated at: {System.DateTime.Now}");
             sb.AppendLine("using System;");
-            sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("#if VIRTUESKY_FIREBASE_REMOTECONFIG");
             sb.AppendLine("using Firebase.RemoteConfig;");
             sb.AppendLine("#endif");
@@ -198,32 +139,17 @@ namespace RemoteConfigGenerator
                 sb.AppendLine("{");
             }
 
-            // Generate partial class
-            sb.AppendLine($"    public static partial class {className}Extensions");
+            // Generate new static class with properties
+            var configClassName = className + "Config";
+            sb.AppendLine($"    public static class {configClassName}");
             sb.AppendLine("    {");
-            
-            // Generate FieldSetterLookup
-            GenerateFieldSetterLookup(sb, className, members);
-            sb.AppendLine();
 
-            // Generate FieldGetterLookup
-            GenerateFieldGetterLookup(sb, className, members);
-            sb.AppendLine();
-
-            // Generate SetFieldValue_Generated
-            GenerateSetFieldValue(sb, className, members);
-            sb.AppendLine();
-
-            // Generate GetFieldValue_Generated
-            GenerateGetFieldValue(sb, className, members);
-            sb.AppendLine();
-
-            // Generate ExportToString_Generated
-            GenerateExportToString(sb, className, members);
-            sb.AppendLine();
-
-            // Generate local parsing helpers
-            GenerateParsingHelpers(sb);
+            // Generate properties for each field
+            foreach (var member in members)
+            {
+                GenerateRemoteProperty(sb, member, className);
+                sb.AppendLine();
+            }
 
             sb.AppendLine("    }");
 
@@ -235,186 +161,64 @@ namespace RemoteConfigGenerator
             return sb.ToString();
         }
 
-        private void GenerateFieldSetterLookup(StringBuilder sb, string className, List<ConfigMember> members)
+        private void GenerateRemoteProperty(StringBuilder sb, ConfigMember member, string originalClassName)
         {
-            sb.AppendLine($"        public static readonly Dictionary<string, Action<string>> FieldSetterLookup = new Dictionary<string, Action<string>>");
-            sb.AppendLine("        {");
+            var typeName = member.Type;
+            var propertyName = member.Name;
+            var remoteKey = member.Key;
 
-            foreach (var member in members.Where(m => m.SyncFromRemote))
-            {
-                sb.AppendLine($"            {{ \"{member.Key}\", value => {{");
-
-                var typeName = member.Type;
-                if (typeName == "string" || typeName == "System.String")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = value;");
-                }
-                else if (typeName == "int" || typeName == "System.Int32")
-                {
-                    sb.AppendLine($"                if (int.TryParse(value, out var result)) {className}.{member.Name} = result;");
-                }
-                else if (typeName == "float" || typeName == "System.Single")
-                {
-                    sb.AppendLine($"                if (float.TryParse(value, out var result)) {className}.{member.Name} = result;");
-                }
-                else if (typeName == "bool" || typeName == "System.Boolean")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = value == \"true\" || value == \"1\" || value.ToLower() == \"true\";");
-                }
-                else if (typeName == "long" || typeName == "System.Int64")
-                {
-                    sb.AppendLine($"                if (long.TryParse(value, out var result)) {className}.{member.Name} = result;");
-                }
-                else if (typeName == "int[]" || typeName == "System.Int32[]")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = ParseIntArray(value);");
-                }
-                else if (typeName == "float[]" || typeName == "System.Single[]")
-                {
-                    sb.AppendLine($"                {className}.{member.Name} = ParseFloatArray(value);");
-                }
-
-                sb.AppendLine("            }},");
-            }
-
-            sb.AppendLine("        };");
-        }
-
-        private void GenerateFieldGetterLookup(StringBuilder sb, string className, List<ConfigMember> members)
-        {
-            sb.AppendLine($"        public static readonly Dictionary<string, Func<object>> FieldGetterLookup = new Dictionary<string, Func<object>>");
-            sb.AppendLine("        {");
-
-            foreach (var member in members)
-            {
-                sb.AppendLine($"            {{ \"{member.Key}\", () => {className}.{member.Name} }},");
-            }
-
-            sb.AppendLine("        };");
-        }
-
-        private void GenerateSetFieldValue(StringBuilder sb, string className, List<ConfigMember> members)
-        {
             sb.AppendLine("#if VIRTUESKY_FIREBASE_REMOTECONFIG");
-            sb.AppendLine("        public static bool SetFieldValue_Generated(string fieldName, ConfigValue configValue)");
+            sb.AppendLine($"        public static {typeName} {propertyName}");
             sb.AppendLine("        {");
-            sb.AppendLine("            switch (fieldName)");
+            sb.AppendLine("            get");
             sb.AppendLine("            {");
+            sb.AppendLine("                try");
+            sb.AppendLine("                {");
 
-            foreach (var member in members.Where(m => m.SyncFromRemote))
+            // Generate appropriate Firebase Remote Config access based on type
+            if (typeName == "string" || typeName == "System.String")
             {
-                sb.AppendLine($"                case \"{member.Key}\":");
-
-                var typeName = member.Type;
-                if (typeName == "string" || typeName == "System.String")
-                {
-                    sb.AppendLine($"                    {className}.{member.Name} = configValue.StringValue;");
-                }
-                else if (typeName == "int" || typeName == "System.Int32")
-                {
-                    sb.AppendLine($"                    {className}.{member.Name} = (int)configValue.LongValue;");
-                }
-                else if (typeName == "float" || typeName == "System.Single")
-                {
-                    sb.AppendLine($"                    {className}.{member.Name} = (float)configValue.DoubleValue;");
-                }
-                else if (typeName == "bool" || typeName == "System.Boolean")
-                {
-                    sb.AppendLine($"                    {className}.{member.Name} = configValue.BooleanValue || configValue.StringValue == \"true\" || configValue.StringValue == \"1\";");
-                }
-                else if (typeName == "long" || typeName == "System.Int64")
-                {
-                    sb.AppendLine($"                    {className}.{member.Name} = configValue.LongValue;");
-                }
-
-                sb.AppendLine("                    return true;");
+                sb.AppendLine($"                    return FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").StringValue;");
+            }
+            else if (typeName == "int" || typeName == "System.Int32")
+            {
+                sb.AppendLine($"                    return (int)FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").DoubleValue;");
+            }
+            else if (typeName == "float" || typeName == "System.Single")
+            {
+                sb.AppendLine($"                    return (float)FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").DoubleValue;");
+            }
+            else if (typeName == "double" || typeName == "System.Double")
+            {
+                sb.AppendLine($"                    return FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").DoubleValue;");
+            }
+            else if (typeName == "bool" || typeName == "System.Boolean")
+            {
+                sb.AppendLine($"                    return FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").BooleanValue;");
+            }
+            else if (typeName == "long" || typeName == "System.Int64")
+            {
+                sb.AppendLine($"                    return FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").LongValue;");
+            }
+            else
+            {
+                // Default to string for unknown types
+                sb.AppendLine($"                    return FirebaseRemoteConfig.DefaultInstance.GetValue(\"{remoteKey}\").StringValue;");
             }
 
-            sb.AppendLine("                default:");
-            sb.AppendLine("                    return false;");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
+            sb.AppendLine("                }");
+            sb.AppendLine("                catch (Exception e)");
+            sb.AppendLine("                {");
+            sb.AppendLine("#if UNITY_EDITOR || DEVELOPMENT_BUILD");
+            sb.AppendLine($"                    UnityEngine.Debug.LogWarning($\"Failed to get remote value for '{remoteKey}', return default value: {{e.Message}}\");");
             sb.AppendLine("#endif");
-        }
-
-        private void GenerateGetFieldValue(StringBuilder sb, string className, List<ConfigMember> members)
-        {
-            sb.AppendLine("        public static object GetFieldValue_Generated(string fieldName)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            switch (fieldName)");
-            sb.AppendLine("            {");
-
-            foreach (var member in members)
-            {
-                sb.AppendLine($"                case \"{member.Key}\":");
-                sb.AppendLine($"                    return {className}.{member.Name};");
-            }
-
-            sb.AppendLine("                default:");
-            sb.AppendLine("                    return null;");
+            sb.AppendLine($"                    return {originalClassName}.{propertyName};");
+            sb.AppendLine("                }");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
-        }
-
-        private void GenerateExportToString(StringBuilder sb, string className, List<ConfigMember> members)
-        {
-            sb.AppendLine("        public static string ExportToString_Generated()");
-            sb.AppendLine("        {");
-            sb.AppendLine("            var sb = new System.Text.StringBuilder();");
-
-            foreach (var member in members.OrderBy(m => m.Name))
-            {
-                sb.AppendLine($"            {{");
-                
-                // ✅ FIX: Xử lý riêng cho value types và reference types
-                var typeName = member.Type;
-                if (typeName == "string" || typeName == "System.String")
-                {
-                    // String có thể null
-                    sb.AppendLine($"                var value = {className}.{member.Name} ?? \"null\";");
-                }
-                else
-                {
-                    // Value types (int, bool, float, etc.) không thể null
-                    sb.AppendLine($"                var value = {className}.{member.Name}.ToString();");
-                }
-                
-                sb.AppendLine($"                if (value.Length > 300)");
-                sb.AppendLine($"                    sb.AppendLine(\"{member.Name}: <color='#FF0000'>\" + value.Substring(0, 300) + \"...</color>\");");
-                sb.AppendLine($"                else");
-                sb.AppendLine($"                    sb.AppendLine(\"{member.Name}: <color='#FF0000'>\" + value + \"</color>\");");
-                sb.AppendLine($"            }}");
-            }
-
-            sb.AppendLine("            return sb.ToString();");
-            sb.AppendLine("        }");
-        }
-
-        private void GenerateParsingHelpers(StringBuilder sb)
-        {
-            sb.AppendLine("        private static int[] ParseIntArray(string value)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (string.IsNullOrEmpty(value)) return new int[0];");
-            sb.AppendLine("            var parts = value.Split(',');");
-            sb.AppendLine("            var values = new List<int>();");
-            sb.AppendLine("            foreach (var part in parts)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                if (int.TryParse(part.Trim(), out var parsed)) values.Add(parsed);");
-            sb.AppendLine("            }");
-            sb.AppendLine("            return values.ToArray();");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            sb.AppendLine("        private static float[] ParseFloatArray(string value)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (string.IsNullOrEmpty(value)) return new float[0];");
-            sb.AppendLine("            var parts = value.Split(',');");
-            sb.AppendLine("            var values = new List<float>();");
-            sb.AppendLine("            foreach (var part in parts)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                if (float.TryParse(part.Trim(), out var parsed)) values.Add(parsed);");
-            sb.AppendLine("            }");
-            sb.AppendLine("            return values.ToArray();");
-            sb.AppendLine("        }");
+            sb.AppendLine("#else");
+            sb.AppendLine($"        public static {typeName} {propertyName} => {originalClassName}.{propertyName};");
+            sb.AppendLine("#endif");
         }
 
         private string GetPrefsPrefix(INamedTypeSymbol classSymbol)
@@ -524,9 +328,6 @@ namespace RemoteConfigGenerator
             public string Name { get; set; }
             public string Type { get; set; }
             public string Key { get; set; }
-            public bool IsField { get; set; }
-            public bool PersistToPrefs { get; set; }
-            public bool SyncFromRemote { get; set; }
         }
 
         private class RemoteConfigSyntaxReceiver : ISyntaxReceiver

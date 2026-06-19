@@ -201,96 +201,14 @@ namespace VirtueSky.RemoteConfigGenerated
 #if VIRTUESKY_FIREBASE_REMOTECONFIG
             foreach (var _ in _fbRemoteConfigInstance.Keys)
             {
-                FirebaseMergeAllKeys_Optimized();
+                // Remote Config đã được activate, các property sẽ tự động lấy giá trị mới
+                Debug.Log("Remote Config values activated successfully");
                 return true;
             }
 #endif
             return false;
         }
         
-        public void FirebaseMergeAllKeys_Optimized()
-        {
-#if VIRTUESKY_FIREBASE_REMOTECONFIG
-            IEnumerable<string> keys = _fbRemoteConfigInstance.Keys;
-
-            foreach (string k in keys)
-            {
-                // Handle nested Settings keys (e.g., "AdSettings", "ShopSettings")
-                if (k.Contains("Settings"))
-                {
-                    Dictionary<string, object> jsonDict =
-                        JsonConvert.DeserializeObject<Dictionary<string, object>>(_fbRemoteConfigInstance.GetValue(k).StringValue);
-                    MergeNestedKeys_Optimized(jsonDict, k.Replace("Settings", ""));
-                    continue;
-                }
-                
-                if (RemoteDataExtensions.FieldSetterLookup.TryGetValue(k, out Action<string> setter))
-                {
-                    var configValue = _fbRemoteConfigInstance.GetValue(k);
-                    setter.Invoke(configValue.StringValue);
-                    continue;
-                }
-
-                // Alternative: Use generated SetFieldValue_Generated for type-safe ConfigValue handling
-                var configValueAlt = _fbRemoteConfigInstance.GetValue(k);
-                bool handled = RemoteDataExtensions.SetFieldValue_Generated(k, configValueAlt);
-
-                if (!handled)
-                {
-#if UNITY_EDITOR
-                    Debug.LogWarning(
-                        $"Key '{k}' from Firebase not found in RemoteData class. Add [RemoteConfigField] attribute to handle it.");
-#endif
-                }
-
-            }
-#endif
-            //Debug.Log("FirebaseMergeAllKeys_Optimized completed - Zero reflection used!");
-        }
-        
-        private void MergeNestedKeys_Optimized(Dictionary<string, object> jsonDict, string keyPrefix)
-        {
-            foreach (KeyValuePair<string, object> data in jsonDict)
-            {
-                string fullKey = keyPrefix + data.Key;
-
-                try
-                {
-                    // OPTIMIZED: Use generated FieldSetterLookup - no reflection!
-                    if (RemoteDataExtensions.FieldSetterLookup.TryGetValue(fullKey, out Action<string> setter))
-                    {
-                        string valueStr;
-                        if (data.Value is string)
-                        {
-                            valueStr = data.Value.ToString();
-                        }
-                        else
-                        {
-                            valueStr = JsonConvert.SerializeObject(data.Value);
-                        }
-
-                        setter.Invoke(valueStr);
-
-#if UNITY_EDITOR
-                        //Debug.Log($"[Optimized] Updated {fullKey}: {valueStr}");
-#endif
-                    }
-                    else
-                    {
-#if UNITY_EDITOR
-                       // Debug.LogWarning($"Key {fullKey} from Firebase not found in RemoteData class!");
-#endif
-                    }
-                }
-                catch (Exception ex)
-                {
-#if UNITY_EDITOR
-                    //Debug.LogWarning($"Invalid key: {fullKey}:{data.Value} - {ex.Message}");
-#endif
-                }
-            }
-        }
-
         #endregion
 
         /// <summary>
@@ -303,8 +221,10 @@ namespace VirtueSky.RemoteConfigGenerated
         
         public string ExportToString()
         {
-            // OPTIMIZED: Use generated method - no reflection!
-            return RemoteDataExtensions.ExportToString_Generated();
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"InterTimeGap: {RemoteData.InterTimeGap}");
+            sb.AppendLine($"StartLevelShowInter: {RemoteData.StartLevelShowInter}");
+            return sb.ToString();
         }
 
         /// <summary>
@@ -321,7 +241,7 @@ namespace VirtueSky.RemoteConfigGenerated
         {
             if (IsLoaded) return;
             IsLoaded = true;
-            Debug.Log(RemoteDataExtensions.ExportToString_Generated());
+            Debug.Log(ExportToString());
             OnLoaded?.Invoke();
         }
     }
